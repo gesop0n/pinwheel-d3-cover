@@ -13,7 +13,6 @@
       in
       {
         devShells = {
-          # メイン環境
           default = pkgs.mkShell {
             packages = [
               # Rust ツールチェイン
@@ -40,7 +39,7 @@
             '';
           };
 
-          # 元論文の公¡式検証器を動かすための任意環境
+          # 以下のソースコードを動かすための環境
           #
           # 対象論文:
           #   "A Simple Computer-Assisted Proof of the 5/6-Bound for Real-Period Pinwheel Scheduling"
