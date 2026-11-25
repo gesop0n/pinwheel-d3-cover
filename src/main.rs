@@ -61,7 +61,7 @@ enum UpperCommand {
     },
     /// Independently verify domination of D_3 and leave-one-out necessity (solver-free FM check)
     Verify {
-        /// Path to a certificate file (e.g. certs/D3_11words.txt)
+        /// Path to a certificate file (e.g. proofs/D3_11words.txt)
         cert: PathBuf,
     },
 }

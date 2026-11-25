@@ -21,10 +21,10 @@ fn check_certificate(rel_path: &str, expected_words: usize) {
 
 #[test]
 fn verify_12word_certificate() {
-    check_certificate("certs/D3_12words.txt", 12);
+    check_certificate("proofs/D3_12words.txt", 12);
 }
 
 #[test]
 fn verify_11word_certificate() {
-    check_certificate("certs/D3_11words.txt", 11);
+    check_certificate("proofs/D3_11words.txt", 11);
 }

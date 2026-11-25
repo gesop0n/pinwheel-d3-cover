@@ -16,14 +16,14 @@ the upstream paper certifies domination using **18 words** (maximum length 12). 
 | Certificate | Words | Max word length | Notes |
 | --- | ---: | ---: | --- |
 | Upstream `proof_5_6/D3.txt` | 18 | 12 | Paper's original certificate |
-| [`certs/D3_12words.txt`](certs/D3_12words.txt) | **12** | 12 | Exact minimum among all words of length $\le 23$ |
-| [`certs/D3_11words.txt`](certs/D3_11words.txt) | **11** | 24 | Exact minimum among all words of length $\le 24$ (and globally optimal, $N(3) = 11$) |
+| [`proofs/D3_12words.txt`](proofs/D3_12words.txt) | **12** | 12 | Exact minimum among all words of length $\le 23$ |
+| [`proofs/D3_11words.txt`](proofs/D3_11words.txt) | **11** | 24 | Exact minimum among all words of length $\le 24$ (and globally optimal, $N(3) = 11$) |
 
 Every certificate uses the exact same `WORD,b1,b2,b3` format as the upstream repository, passes the upstream paper's official prover directly, passes this repository's solver-free exact Fourier–Motzkin check, and has no redundant words.
 
 ## Verifying Directly with the Upstream Paper's Prover
 
-Because `certs/D3_12words.txt` and `certs/D3_11words.txt` are plain text certificates, their correctness does **not** depend on how they were discovered (HiGHS is only used to search for minimal covers). You can verify them directly with the upstream paper's official Z3-based prover (`--recompute-boxes` ignores stored box annotations and recomputes every dominance box from the word):
+Because `proofs/D3_12words.txt` and `proofs/D3_11words.txt` are plain text certificates, their correctness does **not** depend on how they were discovered (HiGHS is only used to search for minimal covers). You can verify them directly with the upstream paper's official Z3-based prover (`--recompute-boxes` ignores stored box annotations and recomputes every dominance box from the word):
 
 ```sh
 nix develop .#paper-prover
@@ -33,12 +33,12 @@ uv sync && uv run cpp-build
 
 uv run python pinwheel_scheduling_packing_prover.py \
   --dimension 3 --density-bound 5/6 \
-  --certificate /path/to/pinwheel-d3-cover/certs/D3_12words.txt \
+  --certificate /path/to/pinwheel-d3-cover/proofs/D3_12words.txt \
   --recompute-boxes --max-steps 0
 
 uv run python pinwheel_scheduling_packing_prover.py \
   --dimension 3 --density-bound 5/6 \
-  --certificate /path/to/pinwheel-d3-cover/certs/D3_11words.txt \
+  --certificate /path/to/pinwheel-d3-cover/proofs/D3_11words.txt \
   --recompute-boxes --max-steps 0
 ```
 
@@ -62,8 +62,8 @@ cargo test --release
 cargo run --release -- box AABACB
 
 # Independently verify certificates (solver-free exact rational Fourier–Motzkin + leave-one-out)
-cargo run --release -- upper verify certs/D3_12words.txt
-cargo run --release -- upper verify certs/D3_11words.txt
+cargo run --release -- upper verify proofs/D3_12words.txt
+cargo run --release -- upper verify proofs/D3_11words.txt
 
 # Rediscover the minimum 12-word cover from all words of length <= 12
 cargo run --release -- upper solve --max-len 12
@@ -75,7 +75,7 @@ cargo run --release -- upper solve --max-len 24 --min-sum 19/20
 ## Repository Layout & Correspondence with Upstream
 
 ```text
-certs/
+proofs/
   D3_12words.txt         12-word certificate (length <= 12)
   D3_11words.txt         11-word certificate (length <= 24)
 src/
@@ -90,5 +90,5 @@ src/
     mincover.rs          Two-stage minimum set cover via HiGHS (good_lp)
     verify.rs            Solver-free full-domain domination check + leave-one-out
 tests/
-  upper_certificates.rs  End-to-end verification of certs/D3_12words.txt and D3_11words.txt
+  upper_certificates.rs  End-to-end verification of proofs/D3_12words.txt and D3_11words.txt
 ```

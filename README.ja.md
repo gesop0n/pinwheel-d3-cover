@@ -20,11 +20,11 @@ $$\mathcal{D}_3 = \{(d_1, d_2, d_3) \mid d_1 \ge d_2 \ge d_3 > 0,\ d_1 + d_2 + d
 です。元論文ではこの領域 $\mathcal{D}_3$ を **18 個の語**（最大長 12）で覆っていました。
 本リポジトリでは、同じ領域 $\mathcal{D}_3$ をより少ない語数で完全に覆う **証明データ**（元論文では *certificate* と呼ばれる語のリストファイル）を与えています。
 
-| 証明データ | 語数 | 最長の語 | 位置づけ |
-| --- | ---: | ---: | --- |
-| 元論文 `proof_5_6/D3.txt` | 18 | 12 | 論文に収録されているデータ |
-| [`certs/D3_12words.txt`](certs/D3_12words.txt) | **12** | 12 | 長さ 12 以下（実は長さ 23 以下すべて）の中での厳密な最小語数 |
-| [`certs/D3_11words.txt`](certs/D3_11words.txt) | **11** | 24 | 長さ 24 以下での最小語数（全語長にわたっても最小、$N(3) = 11$） |
+| 証明データ                                          |     語数 | 最長の語 | 位置づけ                                    |
+| ---------------------------------------------- | -----: | ---: | --------------------------------------- |
+| 元論文 `proof_5_6/D3.txt`                         |     18 |   12 | 論文に収録されているデータ                           |
+| [`proofs/D3_12words.txt`](proofs/D3_12words.txt) | **12** |   12 | 長さ 12 以下（実は長さ 23 以下すべて）の中での厳密な最小語数      |
+| [`proofs/D3_11words.txt`](proofs/D3_11words.txt) | **11** |   24 | 長さ 24 以下での最小語数（全語長にわたっても最小、$N(3) = 11$） |
 
 いずれのデータも「1 語でも外すと覆い残しが生じる」極小な集合であり、元論文とまったく同じ書式（`語,上界1,上界2,上界3`）で書かれています。
 
@@ -32,7 +32,7 @@ $$\mathcal{D}_3 = \{(d_1, d_2, d_3) \mid d_1 \ge d_2 \ge d_3 > 0,\ d_1 + d_2 + d
 
 ## まず結果だけを確かめる（元論文の公式検証器でチェック）
 
-上界の証明データ（`certs/D3_12words.txt`, `certs/D3_11words.txt`）の正しさは、**それをどうやって見つけたかには一切依存しません。**
+上界の証明データ（`proofs/D3_12words.txt`, `proofs/D3_11words.txt`）の正しさは、**それをどうやって見つけたかには一切依存しません。**
 元論文の公式リポジトリ付属の検証器（Z3 ベース）にそのまま渡すだけで、第三者が独立に正しさを確認できます。
 
 ```sh
@@ -48,12 +48,12 @@ uv sync && uv run cpp-build
 # （--recompute-boxes により、ファイル内の箱の注釈は信用せず語から再計算する）
 uv run python pinwheel_scheduling_packing_prover.py \
   --dimension 3 --density-bound 5/6 \
-  --certificate /path/to/pinwheel-d3-cover/certs/D3_12words.txt \
+  --certificate /path/to/pinwheel-d3-cover/proofs/D3_12words.txt \
   --recompute-boxes --max-steps 0
 
 uv run python pinwheel_scheduling_packing_prover.py \
   --dimension 3 --density-bound 5/6 \
-  --certificate /path/to/pinwheel-d3-cover/certs/D3_11words.txt \
+  --certificate /path/to/pinwheel-d3-cover/proofs/D3_11words.txt \
   --recompute-boxes --max-steps 0
 ```
 
@@ -102,8 +102,8 @@ cargo run --release -- box AABACB
 # -> AABACB,<1/2,<=1/3,<=1/6
 
 # 証明データをソルバ不要の Fourier–Motzkin 消去で独立検証（各語を外した反例点も表示）
-cargo run --release -- upper verify certs/D3_12words.txt
-cargo run --release -- upper verify certs/D3_11words.txt
+cargo run --release -- upper verify proofs/D3_12words.txt
+cargo run --release -- upper verify proofs/D3_11words.txt
 
 # 長さ 12 以下の全語から最小 12 語を再発見する（約 0.1 秒）
 cargo run --release -- upper solve --max-len 12
