@@ -7,3 +7,4 @@ edition = "2024"
 clap = { version = "4.6.9", features = ["derive"] }
 num-rational = "0.4.2"
 num-traits = "0.2.19"
+rayon = "1.12.0"
