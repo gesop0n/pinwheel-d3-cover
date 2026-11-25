@@ -1,19 +1,19 @@
 use num_traits::Zero;
 
-use crate::model::bound::Rat;
+use crate::model::bound::{DensityVector, Fraction};
 
-/// 3変数線形不等式制約:
-///   `coeffs[0]*d0 + coeffs[1]*d1 + coeffs[2]*d2 <= rhs` (strict == false)
-///   `coeffs[0]*d0 + coeffs[1]*d1 + coeffs[2]*d2 <  rhs` (strict == true)
+/// Linear inequality in three real variables `(d_1, d_2, d_3)`:
+///   `coeffs · d <= rhs` (when `strict == false`)
+///   `coeffs · d <  rhs` (when `strict == true`)
 #[derive(Debug, Clone)]
 pub struct LinearConstraint {
-    pub coeffs: [Rat; 3],
-    pub rhs: Rat,
+    pub coeffs: [Fraction; 3],
+    pub rhs: Fraction,
     pub strict: bool,
 }
 
 impl LinearConstraint {
-    pub fn le(coeffs: [Rat; 3], rhs: Rat) -> Self {
+    pub fn le(coeffs: [Fraction; 3], rhs: Fraction) -> Self {
         Self {
             coeffs,
             rhs,
@@ -21,7 +21,7 @@ impl LinearConstraint {
         }
     }
 
-    pub fn lt(coeffs: [Rat; 3], rhs: Rat) -> Self {
+    pub fn lt(coeffs: [Fraction; 3], rhs: Fraction) -> Self {
         Self {
             coeffs,
             rhs,
@@ -29,9 +29,9 @@ impl LinearConstraint {
         }
     }
 
-    /// 点 `p` がこの制約を満たすか
-    pub fn satisfied_by(&self, p: &[Rat; 3]) -> bool {
-        let lhs = self.coeffs[0] * p[0] + self.coeffs[1] * p[1] + self.coeffs[2] * p[2];
+    /// Returns true iff `point` satisfies this linear constraint.
+    pub fn satisfied_by(&self, point: &DensityVector) -> bool {
+        let lhs = self.coeffs[0] * point[0] + self.coeffs[1] * point[1] + self.coeffs[2] * point[2];
         if self.strict {
             lhs < self.rhs
         } else {
@@ -40,10 +40,10 @@ impl LinearConstraint {
     }
 }
 
-/// 1つの変数 `var` を Fourier–Motzkin 消去する。
-/// 矛盾する定数制約が現れたら `None` を返す。
+/// Eliminates variable `var` via exact rational Fourier–Motzkin elimination.
+/// Returns `None` as soon as a contradictory constant constraint is derived.
 fn eliminate_var(cons: &[LinearConstraint], var: usize) -> Option<Vec<LinearConstraint>> {
-    let zero = Rat::zero();
+    let zero = Fraction::zero();
     let mut pos = Vec::new();
     let mut neg = Vec::new();
     let mut out = Vec::new();
@@ -54,19 +54,17 @@ fn eliminate_var(cons: &[LinearConstraint], var: usize) -> Option<Vec<LinearCons
             pos.push(c);
         } else if a < zero {
             neg.push(c);
-        } else {
-            if c.coeffs.iter().all(|x| x.is_zero()) {
-                let ok = if c.strict {
-                    zero < c.rhs
-                } else {
-                    zero <= c.rhs
-                };
-                if !ok {
-                    return None;
-                }
+        } else if c.coeffs.iter().all(|x| x.is_zero()) {
+            let ok = if c.strict {
+                zero < c.rhs
             } else {
-                out.push(c.clone());
+                zero <= c.rhs
+            };
+            if !ok {
+                return None;
             }
+        } else {
+            out.push(c.clone());
         }
     }
 
@@ -74,11 +72,12 @@ fn eliminate_var(cons: &[LinearConstraint], var: usize) -> Option<Vec<LinearCons
         let au = u.coeffs[var]; // > 0
         for l in &neg {
             let al = -l.coeffs[var]; // > 0
-            // 係数 var を +1 と -1 に正規化してから足すことで桁膨張を防ぐ
+            // Normalize the eliminated variable's coefficients to +1 and -1 before adding
+            // to keep numerators and denominators small.
             let mut coeffs = [zero; 3];
-            for k in 0..3 {
+            for (k, coeff) in coeffs.iter_mut().enumerate() {
                 if k != var {
-                    coeffs[k] = u.coeffs[k] / au + l.coeffs[k] / al;
+                    *coeff = u.coeffs[k] / au + l.coeffs[k] / al;
                 }
             }
             let rhs = u.rhs / au + l.rhs / al;
@@ -102,7 +101,8 @@ fn eliminate_var(cons: &[LinearConstraint], var: usize) -> Option<Vec<LinearCons
     Some(out)
 }
 
-/// 3変数の線形不等式系に実数解（有理数解）が存在するかを厳密判定する
+/// Decides exactly (over `Q`, without any external solver) whether a 3-variable system of
+/// strict/non-strict linear inequalities is feasible.
 pub fn fm_feasible(cons: &[LinearConstraint]) -> bool {
     let Some(l1) = eliminate_var(cons, 0) else {
         return false;
@@ -113,22 +113,22 @@ pub fn fm_feasible(cons: &[LinearConstraint]) -> bool {
     eliminate_var(&l2, 2).is_some()
 }
 
-/// 3変数の線形不等式系に解が存在すれば、具体的な有理数解（witness）を1点返す
-pub fn fm_witness(cons: &[LinearConstraint]) -> Option<[Rat; 3]> {
+/// If the system is feasible, reconstructs an explicit rational witness point via back-substitution.
+pub fn fm_witness(cons: &[LinearConstraint]) -> Option<DensityVector> {
     let l1 = eliminate_var(cons, 0)?;
     let l2 = eliminate_var(&l1, 1)?;
     let _ = eliminate_var(&l2, 2)?;
 
     let layers: [&[LinearConstraint]; 3] = [cons, &l1, &l2];
-    let zero = Rat::zero();
-    let one = Rat::from_integer(1);
-    let two = Rat::from_integer(2);
+    let zero = Fraction::zero();
+    let one = Fraction::from_integer(1);
+    let two = Fraction::from_integer(2);
     let mut point = [zero; 3];
 
-    // 逆順に d2 -> d1 -> d0 を決定（バックサブスティチューション）
+    // Back-substitute in reverse order: d_3 -> d_2 -> d_1.
     for var in (0..3).rev() {
-        let mut lo: Option<(Rat, bool)> = None; // d_var >= val (strict なら >)
-        let mut hi: Option<(Rat, bool)> = None; // d_var <= val (strict なら <)
+        let mut lo: Option<(Fraction, bool)> = None; // d_var >= val (or > if strict)
+        let mut hi: Option<(Fraction, bool)> = None; // d_var <= val (or < if strict)
 
         for c in layers[var] {
             let a = c.coeffs[var];
@@ -136,12 +136,11 @@ pub fn fm_witness(cons: &[LinearConstraint]) -> Option<[Rat; 3]> {
                 continue;
             }
             let mut other = zero;
-            for k in (var + 1)..3 {
-                other += c.coeffs[k] * point[k];
+            for (k, &coord) in point.iter().enumerate().skip(var + 1) {
+                other += c.coeffs[k] * coord;
             }
             let val = (c.rhs - other) / a;
             if a > zero {
-                // d_var <= val (or <)
                 let tighter = match hi {
                     None => true,
                     Some((hv, hs)) => val < hv || (val == hv && c.strict && !hs),
@@ -150,7 +149,7 @@ pub fn fm_witness(cons: &[LinearConstraint]) -> Option<[Rat; 3]> {
                     hi = Some((val, c.strict));
                 }
             } else {
-                // a < 0 で割るので不等号反転: d_var >= val (or >)
+                // Dividing by a < 0 flips the inequality to a lower bound.
                 let tighter = match lo {
                     None => true,
                     Some((lv, ls)) => val > lv || (val == lv && c.strict && !ls),
@@ -166,11 +165,7 @@ pub fn fm_witness(cons: &[LinearConstraint]) -> Option<[Rat; 3]> {
                 if l > h || (l == h && (ls || hs)) {
                     return None;
                 }
-                if l == h {
-                    l
-                } else {
-                    (l + h) / two
-                }
+                if l == h { l } else { (l + h) / two }
             }
             (Some((l, _)), None) => l + one,
             (None, Some((h, _))) => h - one,
@@ -188,15 +183,15 @@ mod tests {
 
     #[test]
     fn feasible_and_witness_on_simplex_slice() {
-        let z = Rat::zero();
-        let o = Rat::from_integer(1);
-        let bound = Rat::new(5, 6);
+        let z = Fraction::zero();
+        let o = Fraction::from_integer(1);
+        let bound = Fraction::new(5, 6);
         let cons = vec![
-            LinearConstraint::le([-o, o, z], z),       // d0 >= d1
-            LinearConstraint::le([z, -o, o], z),       // d1 >= d2
-            LinearConstraint::lt([z, z, -o], z),       // d2 > 0
-            LinearConstraint::le([o, o, o], bound),    // sum <= 5/6
-            LinearConstraint::le([-o, -o, -o], -bound), // sum >= 5/6
+            LinearConstraint::le([-o, o, z], z),
+            LinearConstraint::le([z, -o, o], z),
+            LinearConstraint::lt([z, z, -o], z),
+            LinearConstraint::le([o, o, o], bound),
+            LinearConstraint::le([-o, -o, -o], -bound),
         ];
         assert!(fm_feasible(&cons));
         let p = fm_witness(&cons).expect("witness should exist");
@@ -206,10 +201,9 @@ mod tests {
 
     #[test]
     fn strict_infeasibility_detected() {
-        let z = Rat::zero();
-        let o = Rat::from_integer(1);
-        let half = Rat::new(1, 2);
-        // d0 < 1/2 かつ d0 >= 1/2 は解なし
+        let z = Fraction::zero();
+        let o = Fraction::from_integer(1);
+        let half = Fraction::new(1, 2);
         let cons = vec![
             LinearConstraint::lt([o, z, z], half),
             LinearConstraint::le([-o, z, z], -half),

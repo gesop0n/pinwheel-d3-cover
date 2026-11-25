@@ -2,8 +2,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
-use pinwheel_d3_cover::model::bound::parse_rat;
-use pinwheel_d3_cover::model::word::{dominance_box, parse_certificate};
+use pinwheel_d3_cover::model::bound::parse_fraction;
+use pinwheel_d3_cover::model::word::{PeriodicSchedule, parse_certificate};
 use pinwheel_d3_cover::upper::enumerate::{enumerate_boxes, enumerate_boxes_pruned};
 use pinwheel_d3_cover::upper::mincover::{find_min_cover, format_certificate};
 use pinwheel_d3_cover::upper::verify::verify_certificate;
@@ -11,7 +11,7 @@ use pinwheel_d3_cover::upper::verify::verify_certificate;
 #[derive(Parser)]
 #[command(
     name = "pinwheel-d3-cover",
-    about = "Minimum word cover for 3-task pinwheel scheduling (density <= 5/6)"
+    about = "Minimum dominating word cover for 3-task real-period pinwheel scheduling (D_3, density <= 5/6)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -20,9 +20,12 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// 1語の支配箱 B(w) を計算して元論文と同じ書式で出力する
-    Box { word: String },
-    /// 上界（証明書の探索と検証）に関するコマンド
+    /// Compute the dominance box B(w) of a word in upstream certificate format
+    Box {
+        /// Periodic word over {A, B, C} (e.g. AABACB)
+        word: String,
+    },
+    /// Upper-bound search and independent domination verification over D_3
     Upper {
         #[command(subcommand)]
         command: UpperCommand,
@@ -31,41 +34,41 @@ enum Command {
 
 #[derive(Subcommand)]
 enum UpperCommand {
-    /// 長さ <= max_len の語から異なる支配箱の代表語を列挙する
+    /// Enumerate one shortest word per distinct density-ordered dominance box up to max_len
     Enum {
         #[arg(long, default_value_t = 12)]
         max_len: usize,
-        /// 指定すると上端の和 u1+u2+u3 >= min_sum で枝刈り列挙を行う（例: 19/20）
+        /// Optional lower bound on u_1 + u_2 + u_3 for pruned DFS (e.g. 19/20)
         #[arg(long)]
         min_sum: Option<String>,
-        /// 出力ファイルパス（省略時は標準出力）
+        /// Write output to a file instead of stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// 候補語プール（または --max-len の列挙結果）から D_3 の最小被覆を HiGHS で求める
+    /// Find a minimum dominating family of words over D_3 using slice cells and HiGHS
     Solve {
-        /// 候補語ファイル（1行1語、または WORD,b1,b2,b3 形式）。省略時は --max-len で列挙
+        /// Candidate word pool file (one word per line or WORD,b1,b2,b3). If omitted, enumerates up to --max-len
         pool: Option<PathBuf>,
-        /// pool 省略時に列挙する最大語長
+        /// Maximum word length when --pool is omitted
         #[arg(long, default_value_t = 12)]
         max_len: usize,
-        /// pool 省略時に上端の和 u1+u2+u3 >= min_sum で枝刈り列挙を行う（例: 19/20）
+        /// Optional lower bound on u_1 + u_2 + u_3 for pruned DFS when pool is omitted (e.g. 19/20)
         #[arg(long)]
         min_sum: Option<String>,
-        /// 証明書ファイルの出力先（省略時は標準出力）
+        /// Write certificate to a file instead of stdout
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
-    /// 証明書ファイルが D_3 を完全に覆い、冗長な語がないことをソルバ不要の FM 消去で独立検証する
+    /// Independently verify domination of D_3 and leave-one-out necessity (solver-free FM check)
     Verify {
-        /// 検証する証明書ファイル（例: certs/D3_11words.txt）
+        /// Path to a certificate file (e.g. certs/D3_11words.txt)
         cert: PathBuf,
     },
 }
 
 fn read_word_pool(path: &PathBuf) -> Result<Vec<String>, String> {
-    let text = fs::read_to_string(path)
-        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
     Ok(text
         .lines()
         .map(str::trim)
@@ -81,11 +84,11 @@ fn run_enum(max_len: usize, min_sum: Option<&str>) -> Result<(Vec<String>, Strin
             format!("all words of length <= {max_len}"),
         )),
         Some(s) => {
-            let r = parse_rat(s)?;
+            let r = parse_fraction(s)?;
             let words = enumerate_boxes_pruned(max_len, *r.numer(), *r.denom());
             Ok((
                 words,
-                format!("words of length <= {max_len} with u1+u2+u3 >= {r}"),
+                format!("words of length <= {max_len} with u_1 + u_2 + u_3 >= {r}"),
             ))
         }
     }
@@ -95,8 +98,8 @@ fn main() -> Result<(), String> {
     let cli = Cli::parse();
     match cli.command {
         Command::Box { word } => {
-            let b = dominance_box(&word)?;
-            println!("{word},{},{},{}", b[0], b[1], b[2]);
+            let sched = PeriodicSchedule::from_word(&word)?;
+            println!("{sched}");
         }
         Command::Upper { command } => match command {
             UpperCommand::Enum {
@@ -105,7 +108,7 @@ fn main() -> Result<(), String> {
                 output,
             } => {
                 let (words, desc) = run_enum(max_len, min_sum.as_deref())?;
-                eprintln!("{desc}: {} distinct boxes", words.len());
+                eprintln!("{desc}: {} distinct dominance boxes", words.len());
                 let body = words.join("\n") + "\n";
                 match output {
                     Some(path) => {
@@ -143,7 +146,7 @@ fn main() -> Result<(), String> {
                 eprintln!("MINIMUM: {} words", res.chosen.len());
 
                 let header = format!(
-                    "{} words covering D_3 (3 tasks, density <= 5/6); minimum over {}",
+                    "{} words dominating D_3 (dimension 3; density at most 5/6); minimum over {}",
                     res.chosen.len(),
                     source_desc
                 );
@@ -159,26 +162,29 @@ fn main() -> Result<(), String> {
             UpperCommand::Verify { cert } => {
                 let content = fs::read_to_string(&cert)
                     .map_err(|e| format!("failed to read {}: {e}", cert.display()))?;
-                let entries = parse_certificate(&content)?;
-                let report = verify_certificate(&entries)?;
+                let schedules = parse_certificate(&content)?;
+                let report = verify_certificate(&schedules)?;
                 println!(
-                    "OK: {} ({} words) covers D_3 ({} FM cells checked, 0 uncovered)",
-                    cert.display(),
+                    "The supplied {} words dominate D_3 ({} FM cells checked, 0 undominated): {}",
                     report.word_count,
-                    report.total_cells_checked
+                    report.total_cells_checked,
+                    cert.display()
                 );
                 for entry in &report.leave_one_out {
-                    match entry.witness {
-                        Some(p) => println!(
-                            "  necessary {:24} witness=({}, {}, {})",
-                            entry.word, p[0], p[1], p[2]
+                    match entry.undominated_witness {
+                        Some(d) => println!(
+                            "  necessary {:24} undominated density vector = ({}, {}, {})",
+                            entry.word, d[0], d[1], d[2]
                         ),
                         None => println!("  REDUNDANT {:24}", entry.word),
                     }
                 }
                 let redundant = report.redundant_words();
                 if redundant.is_empty() {
-                    println!("leave-one-out: all {} words are necessary", report.word_count);
+                    println!(
+                        "leave-one-out: all {} words are necessary",
+                        report.word_count
+                    );
                 } else {
                     return Err(format!("redundant words found: {redundant:?}"));
                 }

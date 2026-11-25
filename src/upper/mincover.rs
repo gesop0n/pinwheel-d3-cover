@@ -2,23 +2,24 @@ use good_lp::{
     Expression, ProblemVariables, Solution, SolverModel, Variable, constraint, highs, variable,
 };
 
+use crate::model::word::PeriodicSchedule;
 use crate::upper::cells::{BitRow, Pool, PoolItem, SliceCells, build_pool, cells_on_slice};
 
-/// 最小集合被覆の結果
+/// Result of finding a minimum dominating family of words over a candidate pool.
 pub struct MinCoverResult {
     pub pool_total_words: usize,
     pub pool: Pool,
     pub cells: SliceCells,
-    pub chosen: Vec<PoolItem>,
+    pub chosen: Vec<PeriodicSchedule>,
 }
 
-/// 集合被覆問題を HiGHS で 2 段階に解く:
-///   1. 選ぶ語数を最小化 -> 最適値 k
-///   2. 語数 == k のもとで総語長を最小化（短い語を優先）
+/// Solves the exact set-cover instance with HiGHS in two stages:
+///   1. Minimize the number of words `k`.
+///   2. Among all `k`-word covers, minimize total word length.
 pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>, String> {
     let m = pool.len();
 
-    // --- 1段階目: 語数を最小化 ---
+    // Stage 1: minimize word count.
     let mut vars1 = ProblemVariables::new();
     let x1: Vec<Variable> = (0..m).map(|_| vars1.add(variable().binary())).collect();
     let obj1: Expression = x1.iter().copied().sum();
@@ -32,13 +33,13 @@ pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>,
         .map_err(|e| format!("HiGHS failed (stage 1): {e}"))?;
     let k: usize = x1.iter().filter(|&&v| sol1.value(v) > 0.5).count();
 
-    // --- 2段階目: 語数 = k 固定で総語長を最小化 ---
+    // Stage 2: tie-break by shortest total word length at cardinality k.
     let mut vars2 = ProblemVariables::new();
     let x2: Vec<Variable> = (0..m).map(|_| vars2.add(variable().binary())).collect();
     let obj2: Expression = x2
         .iter()
         .enumerate()
-        .map(|(i, &v)| (pool[i].word.len() as f64) * v)
+        .map(|(i, &v)| (pool[i].schedule.word.len() as f64) * v)
         .sum();
     let mut model2 = vars2.minimise(obj2).using(highs);
     for row in rows {
@@ -54,20 +55,24 @@ pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>,
     let mut chosen: Vec<usize> = (0..m).filter(|&i| sol2.value(x2[i]) > 0.5).collect();
     chosen.sort_by(|&i, &j| {
         pool[j]
+            .schedule
             .word
             .len()
-            .cmp(&pool[i].word.len())
-            .then_with(|| pool[i].word.cmp(&pool[j].word))
+            .cmp(&pool[i].schedule.word.len())
+            .then_with(|| pool[i].schedule.word.cmp(&pool[j].schedule.word))
     });
     Ok(chosen)
 }
 
-/// 候補語リストから極大箱プール構築 → スライス細胞分割 → HiGHS 最小被覆を一括実行する
+/// Runs the full upper-bound pipeline: maximal pool -> slice cell arrangement -> HiGHS min cover.
 pub fn find_min_cover(words: &[String]) -> Result<MinCoverResult, String> {
     let pool = build_pool(words)?;
     let cells = cells_on_slice(&pool.items)?;
     let chosen_idx = solve_min_cover(&pool.items, &cells.minimal_rows)?;
-    let chosen = chosen_idx.into_iter().map(|i| pool.items[i].clone()).collect();
+    let chosen = chosen_idx
+        .into_iter()
+        .map(|i| pool.items[i].schedule.clone())
+        .collect();
     Ok(MinCoverResult {
         pool_total_words: words.len(),
         pool,
@@ -76,17 +81,15 @@ pub fn find_min_cover(words: &[String]) -> Result<MinCoverResult, String> {
     })
 }
 
-/// 選ばれた語を元論文 prover 互換の証明書形式（`WORD,b1,b2,b3`）に整形する
-pub fn format_certificate(chosen: &[PoolItem], header_comment: &str) -> String {
+/// Formats schedules in the upstream certificate format (`WORD,b1,b2,b3`).
+pub fn format_certificate(schedules: &[PeriodicSchedule], header_comment: &str) -> String {
     let mut out = String::new();
     out.push_str("# ");
     out.push_str(header_comment);
     out.push('\n');
-    for item in chosen {
-        out.push_str(&format!(
-            "{},{},{},{}\n",
-            item.word, item.bounds[0], item.bounds[1], item.bounds[2]
-        ));
+    for sched in schedules {
+        out.push_str(&sched.to_string());
+        out.push('\n');
     }
     out
 }
@@ -102,7 +105,6 @@ mod tests {
         let res = find_min_cover(&words).unwrap();
         assert_eq!(res.pool.items.len(), 55);
         assert_eq!(res.chosen.len(), 12);
-        // すべての語が長さ <= 12
-        assert!(res.chosen.iter().all(|item| item.word.len() <= 12));
+        assert!(res.chosen.iter().all(|s| s.word.len() <= 12));
     }
 }

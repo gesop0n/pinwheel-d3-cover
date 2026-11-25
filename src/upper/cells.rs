@@ -2,71 +2,74 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use num_traits::Zero;
 
-use crate::model::bound::{Rat, UpperBound};
+use crate::model::bound::{Fraction, UpperBound};
 use crate::model::fm::{LinearConstraint, fm_feasible};
-use crate::model::word::{Box3, dominance_box, relabel};
+use crate::model::word::{DominanceBox, PeriodicSchedule, repair_word};
 
-/// 密度和の上限 5/6
-pub fn density_bound() -> Rat {
-    Rat::new(5, 6)
+/// Density bound `5/6` defining the domain `D_3`.
+pub fn density_bound() -> Fraction {
+    Fraction::new(5, 6)
 }
 
-/// 領域 D_3 = { d1 >= d2 >= d3 > 0, d1 + d2 + d3 <= 5/6 } 上での各座標の上限
-pub fn domain_caps() -> [Rat; 3] {
-    [Rat::new(5, 6), Rat::new(5, 12), Rat::new(5, 18)]
+/// Coordinate suprema over `D_3 = { d_1 >= d_2 >= d_3 > 0, d_1 + d_2 + d_3 <= 5/6 }`.
+pub fn domain_caps() -> [Fraction; 3] {
+    [
+        Fraction::new(5, 6),
+        Fraction::new(5, 12),
+        Fraction::new(5, 18),
+    ]
 }
 
-/// D_3 の内側で等価になるよう、各座標の上界を D_3 の上限で切り詰める
-pub fn cap_box_for_domain(b: Box3) -> Box3 {
+/// Caps each coordinate bound at the supremum of `d_c` over `D_3` so that two boxes covering the
+/// exact same subset of `D_3` share the same key.
+pub fn cap_box_for_domain(bounds: DominanceBox) -> DominanceBox {
     let caps = domain_caps();
     [0, 1, 2].map(|c| {
-        if b[c].value > caps[c] {
-            UpperBound::closed(caps[c])
+        if bounds[c].value > caps[c] {
+            UpperBound::inclusive(caps[c])
         } else {
-            b[c]
+            bounds[c]
         }
     })
 }
 
-/// プール内の1候補（正規化済みの語とその支配箱）
+/// Candidate periodic schedule in the inclusion-maximal pool.
 #[derive(Debug, Clone)]
 pub struct PoolItem {
-    pub word: String,
-    pub bounds: Box3,
-    pub capped: Box3,
+    pub schedule: PeriodicSchedule,
+    pub capped: DominanceBox,
 }
 
-/// 候補語から D_3 内で包含極大な箱だけを残したプールを構築する
+/// Inclusion-maximal dominance boxes over `D_3` extracted from a candidate word list.
 pub struct Pool {
     pub items: Vec<PoolItem>,
     pub distinct_in_domain: usize,
 }
 
 pub fn build_pool(words: &[String]) -> Result<Pool, String> {
-    let mut by_key: HashMap<Box3, (String, Box3)> = HashMap::new();
+    let mut by_key: HashMap<DominanceBox, PeriodicSchedule> = HashMap::new();
     for raw in words {
-        let w = relabel(raw)?;
-        let b = dominance_box(&w)?;
-        let k = cap_box_for_domain(b);
+        let canonical = repair_word(raw)?;
+        let sched = PeriodicSchedule::from_word(&canonical)?;
+        let k = cap_box_for_domain(sched.density_bounds);
         match by_key.get_mut(&k) {
             None => {
-                by_key.insert(k, (w, b));
+                by_key.insert(k, sched);
             }
-            Some((cur_w, cur_b)) => {
-                if (w.len(), &w) < (cur_w.len(), &*cur_w) {
-                    *cur_w = w;
-                    *cur_b = b;
+            Some(cur) => {
+                if (sched.word.len(), &sched.word) < (cur.word.len(), &cur.word) {
+                    *cur = sched;
                 }
             }
         }
     }
 
     let distinct_in_domain = by_key.len();
-    // 辞書順降順に並べると、他の箱を支配する箱が必ず先に現れる
-    let mut keys: Vec<Box3> = by_key.keys().copied().collect();
+    // Sorting keys lexicographically descending guarantees any dominating box appears earlier.
+    let mut keys: Vec<DominanceBox> = by_key.keys().copied().collect();
     keys.sort_by(|a, b| b.cmp(a));
 
-    let mut maximal: Vec<Box3> = Vec::new();
+    let mut maximal: Vec<DominanceBox> = Vec::new();
     for k in keys {
         let dominated = maximal
             .iter()
@@ -79,10 +82,9 @@ pub fn build_pool(words: &[String]) -> Result<Pool, String> {
     let items = maximal
         .into_iter()
         .map(|k| {
-            let (word, bounds) = by_key.remove(&k).unwrap();
+            let schedule = by_key.remove(&k).unwrap();
             PoolItem {
-                word,
-                bounds,
+                schedule,
                 capped: k,
             }
         })
@@ -94,42 +96,42 @@ pub fn build_pool(words: &[String]) -> Result<Pool, String> {
     })
 }
 
-/// 1座標軸を閾値で分割した基本要素（点 または 有界開区間）
+/// One-dimensional cell in the threshold arrangement: either a single point or a bounded open interval.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AxisElem {
-    Point(Rat),
-    Open(Rat, Rat),
+    Point(Fraction),
+    Open(Fraction, Fraction),
 }
 
 impl AxisElem {
-    pub fn lo(self) -> Rat {
+    pub fn lo(self) -> Fraction {
         match self {
             AxisElem::Point(a) | AxisElem::Open(a, _) => a,
         }
     }
 
-    pub fn hi(self) -> Rat {
+    pub fn hi(self) -> Fraction {
         match self {
             AxisElem::Point(a) | AxisElem::Open(_, a) => a,
         }
     }
 
-    /// この要素のすべての点が上界 `bnd` を満たすか
-    pub fn is_covered_by(self, bnd: UpperBound) -> bool {
+    /// Returns true iff every value in this element satisfies `bnd`.
+    pub fn is_dominated_by(self, bnd: UpperBound) -> bool {
         match self {
-            AxisElem::Point(a) => bnd.contains(a),
-            // 開区間 (a, b) の全点が x < v (または <= v) を満たす <=> b <= v
+            AxisElem::Point(a) => bnd.satisfies(a),
+            // Every x in (a, b) satisfies x < v (or x <= v) iff b <= v.
             AxisElem::Open(_, b) => b <= bnd.value,
         }
     }
 
-    /// 座標 `coord` がこの要素に属するための線形制約を `cons` に追加する
+    /// Appends the linear inequalities confining coordinate `coord` to this element.
     pub fn push_constraints(self, coord: usize, cons: &mut Vec<LinearConstraint>) {
-        let zero = Rat::zero();
+        let zero = Fraction::zero();
         let mut pos = [zero; 3];
         let mut neg = [zero; 3];
-        pos[coord] = Rat::from_integer(1);
-        neg[coord] = Rat::from_integer(-1);
+        pos[coord] = Fraction::from_integer(1);
+        neg[coord] = Fraction::from_integer(-1);
         match self {
             AxisElem::Point(a) => {
                 cons.push(LinearConstraint::le(pos, a));
@@ -143,7 +145,7 @@ impl AxisElem {
     }
 }
 
-/// 細胞を覆う箱の集合をビット列で表現する（高速な積集合・包含判定用）
+/// Bitset representing the subset of pool schedules that dominate a given cell.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct BitRow {
     words: Vec<u64>,
@@ -179,7 +181,6 @@ impl BitRow {
         self.words.iter().map(|w| w.count_ones()).sum()
     }
 
-    /// `self` が `other` の部分集合か
     pub fn is_subset_of(&self, other: &Self) -> bool {
         self.words
             .iter()
@@ -204,9 +205,11 @@ impl BitRow {
     }
 }
 
-/// スライス Δ = D_3 ∩ { d1 + d2 + d3 = 5/6 } 上の細胞分割の結果
+/// Finite set-cover reduction on the top slice `Delta = D_3 ∩ { d_1 + d_2 + d_3 = 5/6 }`.
+///
+/// Because dominance boxes are down-closed, dominating `D_3` is equivalent to dominating `Delta`.
 pub struct SliceCells {
-    /// 包含極小な被覆行（各行は「この細胞を覆える箱のインデックス集合」）
+    /// Inclusion-minimal cover sets (each row is the set of pool indices dominating that cell).
     pub minimal_rows: Vec<BitRow>,
     pub axis_sizes: [usize; 3],
     pub tested_cells: usize,
@@ -214,25 +217,26 @@ pub struct SliceCells {
     pub distinct_cover_sets: usize,
 }
 
-/// プール内の箱の閾値でスライス Δ を細胞分割し、有限の集合被覆インスタンスへ帰着する
+/// Partitions each axis by the pool's thresholds, filters product cells meeting `Delta` via exact
+/// Fourier–Motzkin elimination, and returns the resulting inclusion-minimal set-cover rows.
 pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
     let bound = density_bound();
-    let zero = Rat::zero();
-    let one = Rat::from_integer(1);
+    let zero = Fraction::zero();
+    let one = Fraction::from_integer(1);
     let m = pool.len();
 
     let mut elems: [Vec<AxisElem>; 3] = [Vec::new(), Vec::new(), Vec::new()];
-    let mut ts3: Vec<Rat> = Vec::new();
+    let mut ts3: Vec<Fraction> = Vec::new();
 
-    for c in 0..3 {
-        let mut ts: BTreeSet<Rat> = BTreeSet::new();
+    for (c, axis_elems) in elems.iter_mut().enumerate() {
+        let mut ts: BTreeSet<Fraction> = BTreeSet::new();
         for item in pool {
-            if item.bounds[c].value < bound {
-                ts.insert(item.bounds[c].value);
+            if item.schedule.density_bounds[c].value < bound {
+                ts.insert(item.schedule.density_bounds[c].value);
             }
         }
         ts.insert(bound);
-        let ts_vec: Vec<Rat> = ts.into_iter().collect();
+        let ts_vec: Vec<Fraction> = ts.into_iter().collect();
         if c == 2 {
             ts3 = ts_vec.clone();
         }
@@ -245,17 +249,16 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
                 e.push(AxisElem::Open(ts_vec[i], ts_vec[i + 1]));
             }
         }
-        elems[c] = e;
+        *axis_elems = e;
     }
 
-    // 各軸・各要素を覆う箱のビット列を事前計算
     let cov: [Vec<BitRow>; 3] = [0, 1, 2].map(|c| {
         elems[c]
             .iter()
             .map(|&el| {
                 let mut row = BitRow::new(m);
                 for (i, item) in pool.iter().enumerate() {
-                    if el.is_covered_by(item.bounds[c]) {
+                    if el.is_dominated_by(item.schedule.density_bounds[c]) {
                         row.set(i);
                     }
                 }
@@ -264,7 +267,7 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
             .collect()
     });
 
-    // スライス Δ の基本制約: d0 >= d1, d1 >= d2, d2 > 0, d0 + d1 + d2 == 5/6
+    // Slice constraints: d_1 >= d_2 >= d_3 > 0 and d_1 + d_2 + d_3 == 5/6.
     let base = vec![
         LinearConstraint::le([-one, one, zero], zero),
         LinearConstraint::le([zero, -one, one], zero),
@@ -273,7 +276,7 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
         LinearConstraint::le([-one, -one, -one], -bound),
     ];
 
-    let idx3 = |v: Rat| -> usize {
+    let idx3 = |v: Fraction| -> usize {
         let i = ts3.partition_point(|&t| t < v);
         if i < ts3.len() && ts3[i] == v {
             2 * i + 1
@@ -290,7 +293,7 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
     for (i1, &e1) in elems[0].iter().enumerate() {
         for (i2, &e2) in elems[1].iter().enumerate() {
             if e2.lo() > e1.hi() {
-                break; // これ以降は d2 <= d1 を満たせない
+                break; // d_2 <= d_1 impossible for subsequent e2
             }
             let lo3 = bound - e1.hi() - e2.hi();
             let hi3 = bound - e1.lo() - e2.lo();
@@ -317,7 +320,10 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
 
                 let c123 = c12.intersect(&cov[2][i3]);
                 if c123.is_empty() {
-                    return Err("pool does not cover D_3: found an uncovered feasible cell".into());
+                    return Err(
+                        "candidate pool does not dominate D_3: found an undominated feasible cell"
+                            .into(),
+                    );
                 }
                 rows_set.insert(c123);
             }
@@ -325,7 +331,6 @@ pub fn cells_on_slice(pool: &[PoolItem]) -> Result<SliceCells, String> {
     }
 
     let distinct_cover_sets = rows_set.len();
-    // 要素数昇順に並べて、包含極小な行だけを残す
     let mut all_rows: Vec<BitRow> = rows_set.into_iter().collect();
     all_rows.sort_by_key(|r| r.count_ones());
 
@@ -352,7 +357,6 @@ mod tests {
 
     #[test]
     fn pool_len_12_has_55_maximal_boxes() {
-        // pinwheel-test のリファレンス値: L=12 で 1084 語 -> 極大 55 箱
         let words = enumerate_boxes(12);
         let pool = build_pool(&words).unwrap();
         assert_eq!(pool.items.len(), 55);
