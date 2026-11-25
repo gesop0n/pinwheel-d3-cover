@@ -2,8 +2,9 @@ use std::fs;
 use std::path::PathBuf;
 
 use clap::{Parser, Subcommand};
+use pinwheel_d3_cover::model::bound::parse_rat;
 use pinwheel_d3_cover::model::word::{dominance_box, parse_certificate};
-use pinwheel_d3_cover::upper::enumerate::enumerate_boxes;
+use pinwheel_d3_cover::upper::enumerate::{enumerate_boxes, enumerate_boxes_pruned};
 use pinwheel_d3_cover::upper::mincover::{find_min_cover, format_certificate};
 use pinwheel_d3_cover::upper::verify::verify_certificate;
 
@@ -30,10 +31,13 @@ enum Command {
 
 #[derive(Subcommand)]
 enum UpperCommand {
-    /// 長さ <= max_len の全 Lyndon 語から異なる支配箱の代表語を列挙する
+    /// 長さ <= max_len の語から異なる支配箱の代表語を列挙する
     Enum {
         #[arg(long, default_value_t = 12)]
         max_len: usize,
+        /// 指定すると上端の和 u1+u2+u3 >= min_sum で枝刈り列挙を行う（例: 19/20）
+        #[arg(long)]
+        min_sum: Option<String>,
         /// 出力ファイルパス（省略時は標準出力）
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -45,6 +49,9 @@ enum UpperCommand {
         /// pool 省略時に列挙する最大語長
         #[arg(long, default_value_t = 12)]
         max_len: usize,
+        /// pool 省略時に上端の和 u1+u2+u3 >= min_sum で枝刈り列挙を行う（例: 19/20）
+        #[arg(long)]
+        min_sum: Option<String>,
         /// 証明書ファイルの出力先（省略時は標準出力）
         #[arg(short, long)]
         output: Option<PathBuf>,
@@ -67,6 +74,23 @@ fn read_word_pool(path: &PathBuf) -> Result<Vec<String>, String> {
         .collect())
 }
 
+fn run_enum(max_len: usize, min_sum: Option<&str>) -> Result<(Vec<String>, String), String> {
+    match min_sum {
+        None => Ok((
+            enumerate_boxes(max_len),
+            format!("all words of length <= {max_len}"),
+        )),
+        Some(s) => {
+            let r = parse_rat(s)?;
+            let words = enumerate_boxes_pruned(max_len, *r.numer(), *r.denom());
+            Ok((
+                words,
+                format!("words of length <= {max_len} with u1+u2+u3 >= {r}"),
+            ))
+        }
+    }
+}
+
 fn main() -> Result<(), String> {
     let cli = Cli::parse();
     match cli.command {
@@ -75,9 +99,13 @@ fn main() -> Result<(), String> {
             println!("{word},{},{},{}", b[0], b[1], b[2]);
         }
         Command::Upper { command } => match command {
-            UpperCommand::Enum { max_len, output } => {
-                let words = enumerate_boxes(max_len);
-                eprintln!("L={max_len}: {} distinct boxes", words.len());
+            UpperCommand::Enum {
+                max_len,
+                min_sum,
+                output,
+            } => {
+                let (words, desc) = run_enum(max_len, min_sum.as_deref())?;
+                eprintln!("{desc}: {} distinct boxes", words.len());
                 let body = words.join("\n") + "\n";
                 match output {
                     Some(path) => {
@@ -90,14 +118,12 @@ fn main() -> Result<(), String> {
             UpperCommand::Solve {
                 pool,
                 max_len,
+                min_sum,
                 output,
             } => {
                 let (words, source_desc) = match pool {
                     Some(path) => (read_word_pool(&path)?, path.display().to_string()),
-                    None => (
-                        enumerate_boxes(max_len),
-                        format!("all words of length <= {max_len}"),
-                    ),
+                    None => run_enum(max_len, min_sum.as_deref())?,
                 };
                 let res = find_min_cover(&words)?;
                 eprintln!(
