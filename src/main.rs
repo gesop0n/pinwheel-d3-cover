@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 use pinwheel_d3_cover::model::word::dominance_box;
 use pinwheel_d3_cover::upper::enumerate::enumerate_boxes;
+use pinwheel_d3_cover::upper::mincover::{find_min_cover, format_certificate};
 
 #[derive(Parser)]
 #[command(
@@ -36,6 +37,28 @@ enum UpperCommand {
         #[arg(short, long)]
         output: Option<PathBuf>,
     },
+    /// 候補語プール（または --max-len の列挙結果）から D_3 の最小被覆を HiGHS で求める
+    Solve {
+        /// 候補語ファイル（1行1語、または WORD,b1,b2,b3 形式）。省略時は --max-len で列挙
+        pool: Option<PathBuf>,
+        /// pool 省略時に列挙する最大語長
+        #[arg(long, default_value_t = 12)]
+        max_len: usize,
+        /// 証明書ファイルの出力先（省略時は標準出力）
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+}
+
+fn read_word_pool(path: &PathBuf) -> Result<Vec<String>, String> {
+    let text = fs::read_to_string(path)
+        .map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    Ok(text
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty() && !l.starts_with('#'))
+        .map(|l| l.split(',').next().unwrap().trim().to_string())
+        .collect())
 }
 
 fn main() -> Result<(), String> {
@@ -56,6 +79,46 @@ fn main() -> Result<(), String> {
                             .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
                     }
                     None => print!("{body}"),
+                }
+            }
+            UpperCommand::Solve {
+                pool,
+                max_len,
+                output,
+            } => {
+                let (words, source_desc) = match pool {
+                    Some(path) => (read_word_pool(&path)?, path.display().to_string()),
+                    None => (enumerate_boxes(max_len), format!("all words of length <= {max_len}")),
+                };
+                let res = find_min_cover(&words)?;
+                eprintln!(
+                    "pool: {} words -> {} distinct in D_3 -> {} maximal boxes",
+                    res.pool_total_words,
+                    res.pool.distinct_in_domain,
+                    res.pool.items.len()
+                );
+                eprintln!(
+                    "slice cells: {:?} elems/axis, {} tested, {} feasible, {} cover-sets -> {} minimal rows",
+                    res.cells.axis_sizes,
+                    res.cells.tested_cells,
+                    res.cells.feasible_cells,
+                    res.cells.distinct_cover_sets,
+                    res.cells.minimal_rows.len()
+                );
+                eprintln!("MINIMUM: {} words", res.chosen.len());
+
+                let header = format!(
+                    "{} words covering D_3 (3 tasks, density <= 5/6); minimum over {}",
+                    res.chosen.len(),
+                    source_desc
+                );
+                let cert = format_certificate(&res.chosen, &header);
+                match output {
+                    Some(path) => {
+                        fs::write(&path, &cert)
+                            .map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+                    }
+                    None => print!("{cert}"),
                 }
             }
         },

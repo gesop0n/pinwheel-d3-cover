@@ -23,9 +23,10 @@
               pkgs.rust-analyzer
 
               # `highs` クレート（`highs-sys`: CMake + bindgen）のビルドに必要なツール
+              # ※ `llvmPackages.libclang` を packages に入れると unwrapped な clang++ が PATH に
+              #    混ざり stdenv のラッパを覆い隠すため、下の LIBCLANG_PATH のみで参照する
               pkgs.cmake
               pkgs.pkg-config
-              pkgs.llvmPackages.libclang
 
               # Lean 4 のツールチェイン管理（`lean/` 用）
               pkgs.elan
