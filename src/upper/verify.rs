@@ -55,7 +55,7 @@ impl DomainElem {
 /// Solver-free exact domination check over the full domain `D_3` (without assuming the slice
 /// reduction), using threshold cell enumeration and exact rational Fourier–Motzkin elimination.
 ///
-/// Analogous to `UndominatedVectorFinder` in `upstream/pinwheel_scheduling_packing_prover.py`,
+/// Analogous to `UndominatedVectorFinder` in the paper's `pinwheel_scheduling_packing_prover.py`,
 /// but without Z3: returns `(cells_checked, Some(undominated_density_vector))` if any point in
 /// `D_3` lies outside all active dominance boxes, or `(cells_checked, None)` if `D_3` is dominated.
 pub fn find_undominated_density_vector(

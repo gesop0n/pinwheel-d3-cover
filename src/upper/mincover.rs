@@ -112,7 +112,7 @@ pub fn find_min_cover(words: &[String]) -> Result<MinCoverResult, String> {
     })
 }
 
-/// Formats schedules in the upstream certificate format (`WORD,b1,b2,b3`).
+/// Formats schedules in the paper's certificate format (`WORD,b1,b2,b3`).
 pub fn format_certificate(schedules: &[PeriodicSchedule], header_comment: &str) -> String {
     let mut out = String::new();
     out.push_str("# ");

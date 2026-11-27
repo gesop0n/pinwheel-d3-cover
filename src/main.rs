@@ -20,7 +20,7 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Compute the dominance box B(w) of a 3-task word, canonicalized like upstream
+    /// Compute the dominance box B(w) of a 3-task word, canonicalized like the paper's
     /// `packing_schedule_quality` (tasks relabeled by descending bound, smallest rotation)
     Box {
         /// Periodic word using all of {A, B, C} (e.g. AABACB)

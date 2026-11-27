@@ -8,8 +8,8 @@ pub type DominanceBox = [UpperBound; 3];
 /// A periodic schedule represented by a finite word `w` over `{A, B, C}` together with its
 /// dominance box `density_bounds`.
 ///
-/// Matches `PeriodicSchedule` in `upstream/pinwheel_scheduling_packing_prover.py` and
-/// `PlanPack` in `upstream/cpp_src/lib/plan_pack.hpp`.
+/// Matches `PeriodicSchedule` in the paper's `pinwheel_scheduling_packing_prover.py` and
+/// `PlanPack` in `cpp_src/lib/plan_pack.hpp`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PeriodicSchedule {
     pub word: String,
@@ -28,7 +28,7 @@ impl PeriodicSchedule {
 
     /// Returns a canonicalized copy: tasks are relabeled in descending order of `density_bounds`
     /// and the word is rotated to its lexicographically smallest cyclic shift
-    /// (`PlanPack::repair` in `upstream/cpp_src/lib/plan_pack.hpp`).
+    /// (`PlanPack::repair` in the paper's `cpp_src/lib/plan_pack.hpp`).
     pub fn canonicalize(&self) -> Result<Self, String> {
         let word = repair_word(&self.word)?;
         Self::from_word(&word)
@@ -59,8 +59,8 @@ pub fn box_dominates(bounds: &DominanceBox, density_vector: &DensityVector) -> b
 }
 
 /// Computes the admissible density upper bound for a single task `letter` in periodic word `word`
-/// (paper Section 3, eq. (2); equivalent to `Schedule::get_upper_bound` in
-/// `upstream/cpp_src/lib/schedule.hpp`).
+/// (paper Section 3, eq. (2); equivalent to `Schedule::get_upper_bound` in the paper's
+/// `cpp_src/lib/schedule.hpp`).
 ///
 /// A schedule is valid for task period `a` (density `d = 1/a`) iff for every `l >= 1`, every
 /// window of `ceil(l * a)` consecutive days contains at least `l` occurrences of the task.
@@ -120,7 +120,7 @@ pub fn is_density_ordered(bounds: &DominanceBox) -> bool {
 /// Relabels `{A, B, C}` in descending order of their density upper bounds and rotates the word to
 /// its lexicographically smallest cyclic permutation.
 ///
-/// Equivalent to `PlanPack::repair` in `upstream/cpp_src/lib/plan_pack.hpp`.
+/// Equivalent to `PlanPack::repair` in the paper's `cpp_src/lib/plan_pack.hpp`.
 pub fn repair_word(word: &str) -> Result<String, String> {
     let b = dominance_box(word)?;
     let mut order = [0usize, 1, 2];
@@ -147,7 +147,7 @@ pub fn repair_word(word: &str) -> Result<String, String> {
     Ok(String::from_utf8(best).unwrap())
 }
 
-/// Parses a certificate file in upstream format (`WORD,b1,b2,b3`, ignoring empty and `#` lines).
+/// Parses a certificate file in the paper's format (`WORD,b1,b2,b3`, ignoring empty and `#` lines).
 pub fn parse_certificate(content: &str) -> Result<Vec<PeriodicSchedule>, String> {
     let mut schedules = Vec::new();
     for (lineno, raw) in content.lines().enumerate() {
@@ -189,8 +189,8 @@ mod tests {
     }
 
     #[test]
-    fn canonicalize_matches_upstream_quality_tool() {
-        // Output of upstream `packing_schedule_quality BCBCBA ABCABC`.
+    fn canonicalize_matches_paper_quality_tool() {
+        // Output of the paper's `packing_schedule_quality BCBCBA ABCABC`.
         let c = |w: &str| {
             PeriodicSchedule::from_word(w)
                 .unwrap()

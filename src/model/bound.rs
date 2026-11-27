@@ -4,7 +4,7 @@ use std::str::FromStr;
 
 use num_rational::Ratio;
 
-/// Exact rational number, matching `Fraction` in the upstream paper repository
+/// Exact rational number, matching `Fraction` in the paper's repository
 /// (`grzegorz-gutowski/pinwheel_scheduling`).
 ///
 /// Uses `i128` to avoid intermediate overflow during Fourier–Motzkin elimination.
@@ -15,14 +15,14 @@ pub type DensityVector = [Fraction; 3];
 
 /// Coordinate upper bound of a dominance box: either `d < value` (strict) or `d <= value` (inclusive).
 ///
-/// Matches `UpperBound` in `upstream/cpp_src/lib/bound.hpp` and
-/// `upstream/pinwheel_scheduling_packing_prover.py`.
+/// Matches `UpperBound` in the paper's `cpp_src/lib/bound.hpp` and
+/// `pinwheel_scheduling_packing_prover.py`.
 ///
 /// Ordering (`Ord`) reflects interval inclusion (tighter bound is smaller):
 ///   - smaller `value` is tighter (`1/3 < 1/2`),
 ///   - on equal `value`, strict `< v` is tighter than inclusive `<= v` (`(< v) < (<= v)`).
 ///
-/// Note: `upstream/cpp_src/lib/bound.hpp` reverses `operator<` so that `std::max` picks the
+/// Note: the paper's `cpp_src/lib/bound.hpp` reverses `operator<` so that `std::max` picks the
 /// tightest bound. Here we keep the natural inclusion order so `.min()` picks the tightest bound
 /// and descending sort places wider bounds first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -46,7 +46,8 @@ impl UpperBound {
         }
     }
 
-    /// Returns true iff density `d` satisfies this bound (`UpperBound::get_satisfied` in upstream).
+    /// Returns true iff density `d` satisfies this bound (`UpperBound::get_satisfied` in the
+    /// paper's C++ implementation).
     pub fn satisfies(&self, d: Fraction) -> bool {
         if self.strict {
             d < self.value
@@ -140,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_and_prints_upstream_format() {
+    fn parses_and_prints_paper_format() {
         for text in ["<1/2", "<=5/12"] {
             assert_eq!(text.parse::<UpperBound>().unwrap().to_string(), text);
         }

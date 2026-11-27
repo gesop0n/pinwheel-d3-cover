@@ -5,7 +5,7 @@
 実周期 Pinwheel Scheduling における 5/6 境界の計算機援用証明論文：
 
 - *A Simple Computer-Assisted Proof of the 5/6-Bound for Real-Period Pinwheel Scheduling* (arXiv:2611.10624)
-- 上流リポジトリ: <https://github.com/grzegorz-gutowski/pinwheel_scheduling>
+- 元論文のリポジトリ: <https://github.com/grzegorz-gutowski/pinwheel_scheduling>
 
 のうち、**仕事数 $n = 3$・密度和 $5/6$ 以下の領域 $\mathcal{D}_3$** に絞って、領域を覆う周期スケジュール（語）の個数をどこまで減らせるかを探索し、独立に検証するリポジトリです。
 
@@ -17,30 +17,30 @@
 
 $$\mathcal{D}_3 = \{(d_1, d_2, d_3) \mid d_1 \ge d_2 \ge d_3 > 0,\ d_1 + d_2 + d_3 \le 5/6\}$$
 
-です。本リポジトリでは、この領域 $\mathcal{D}_3$ を覆う **証明データ**（上流リポジトリでの *certificate*、書式 `語,上界1,上界2,上界3`）を与えています。
+です。本リポジトリでは、この領域 $\mathcal{D}_3$ を覆う **証明データ**（元論文のリポジトリでの *certificate*、書式 `語,上界1,上界2,上界3`）を与えています。
 
 | 証明データ | 語数 | 最長の語 | 位置づけ |
 | --- | ---: | ---: | --- |
-| 上流 `packing_plans/proof_5_6/D3.txt` | 18 | 12 | 論文に収録されているデータ（Table 1） |
+| 元論文 `packing_plans/proof_5_6/D3.txt` | 18 | 12 | 論文に収録されているデータ（Table 1） |
 | [`proofs/D3_12words.txt`](proofs/D3_12words.txt) | **12** | 12 | 長さ 23 以下の全語における最小語数（HiGHS による計算結果。同梱データは `--max-len 12` から取得） |
 | [`proofs/D3_11words.txt`](proofs/D3_11words.txt) | **11** | 24 | 長さ 24 以下の全語における最小語数（HiGHS による計算結果） |
 
 保証の範囲は次のとおりです。
 
-- **厳密に検証済み（被覆と極小性）**：同梱の 12 語・11 語はいずれも $\mathcal{D}_3$ 全体を覆い、1 語でも外すと覆い残しが生じます。これは上流の Z3 検証器と、本リポジトリのソルバを使わない Fourier–Motzkin 消去の両方で確認できます。
+- **厳密に検証済み（被覆と極小性）**：同梱の 12 語・11 語はいずれも $\mathcal{D}_3$ 全体を覆い、1 語でも外すと覆い残しが生じます。これは元論文の Z3 検証器と、本リポジトリのソルバを使わない Fourier–Motzkin 消去の両方で確認できます。
 - **ソルバによる計算結果（語数の最小性）**：「長さ 23 以下では 11 語以下にできない」「長さ 24 以下では 10 語以下にできない」という最小性の主張は、全列挙と浮動小数点 MIP ソルバ HiGHS の最適性判定に依存しており、最適性の証明は出力されません。また、長さ 25 以上の語を含めた最小語数については本リポジトリでは主張していません。
 
 ---
 
-## 結果だけを確かめる（上流リポジトリの検証器でチェック）
+## 結果だけを確かめる（元論文の検証器でチェック）
 
-`proofs/D3_12words.txt` と `proofs/D3_11words.txt` は上流リポジトリと同じ書式のテキストファイルであり、被覆の正しさは見つけ方に依存しません。上流リポジトリ付属の Z3 ベース検証器にそのまま渡して確認できます。
+`proofs/D3_12words.txt` と `proofs/D3_11words.txt` は元論文のリポジトリと同じ書式のテキストファイルであり、被覆の正しさは見つけ方に依存しません。元論文のリポジトリ付属の Z3 ベース検証器にそのまま渡して確認できます。
 
 ```sh
-# 上流検証器用の Nix シェルに入る
+# 元論文の検証器用 Nix シェルに入る
 nix develop .#paper-prover
 
-# 上流リポジトリを取得してビルド
+# 元論文のリポジトリを取得してビルド
 git clone https://github.com/grzegorz-gutowski/pinwheel_scheduling.git /tmp/pinwheel_scheduling
 cd /tmp/pinwheel_scheduling
 uv sync && uv run cpp-build
@@ -68,7 +68,7 @@ The supplied words dominate the specified domain: dimension 3; density at most 5
 
 ## 探索と検証の仕組み
 
-上流のツールは「覆われていない点が返るたびに、その点を覆う語を追加する」という手順で構成しており、語数の最小化は目的としていません。本リポジトリでは、次の 3 段階で最小語数の組を求め、最後に独立に検証しています。
+元論文のツールは「覆われていない点が返るたびに、その点を覆う語を追加する」という手順で構成しており、語数の最小化は目的としていません。本リポジトリでは、次の 3 段階で最小語数の組を求め、最後に独立に検証しています。
 
 1. **支配箱 $B(w)$ の計算と候補語の列挙**（`src/model/word.rs`, `src/upper/enumerate.rs`）
    - 長さ $L$ の語 $w$ を繰り返すスケジュールが各仕事に許す密度の上限を、有効性の定義（論文式 (2)）から厳密な有理数（`<` と `<=` の区別つき）で計算します。
@@ -85,13 +85,13 @@ The supplied words dominate the specified domain: dimension 3; density at most 5
    - `upper solve` の出力前および `upper verify` では、平面スライスへの帰着も外部ソルバ（HiGHS / Z3）も使わず、元の 3 次元領域 $\mathcal{D}_3$ 全体に対して `Ratio<i128>` の Fourier–Motzkin 消去（リリースビルドでも `overflow-checks = true` でオーバーフローを検出）だけで「覆い残しが 0 であること」と「どの 1 語を外しても具体的な覆い残しの有理点が出ること」を検算します。
 
 > **探索と検証で道具を分ける理由**
-> HiGHS は数百候補からの組合せ最適化が高速な一方、内部計算は浮動小数点です。逆に上流の Z3（任意精度）や本リポジトリの Fourier–Motzkin 消去（128 ビット整数有理数＋オーバーフロー検査）は `<` と `<=` を誤差なく判定できます。探索と検証を分けることで、高速に候補を探しつつ被覆は厳密に確かめる構成にしています。
+> HiGHS は数百候補からの組合せ最適化が高速な一方、内部計算は浮動小数点です。逆に元論文の Z3（任意精度）や本リポジトリの Fourier–Motzkin 消去（128 ビット整数有理数＋オーバーフロー検査）は `<` と `<=` を誤差なく判定できます。探索と検証を分けることで、高速に候補を探しつつ被覆は厳密に確かめる構成にしています。
 
 ---
 
 ## このリポジトリ単体での動かし方
 
-上流リポジトリをクローンせずに探索から検証まで実行できます（内部で C++ の HiGHS を CMake と `libclang` 経由でビルドします）。
+元論文のリポジトリをクローンせずに探索から検証まで実行できます（内部で C++ の HiGHS を CMake と `libclang` 経由でビルドします）。
 
 ```sh
 # 開発環境に入る（rustc, cargo, cmake, pkg-config, LIBCLANG_PATH を提供）
@@ -100,7 +100,7 @@ nix develop
 # 単体テスト＋証明データ（12語・11語）の検証をまとめて実行
 cargo test --release
 
-# 3 仕事の語の支配箱を計算（正準化して出力。3 文字すべて使う語では上流 packing_schedule_quality と一致）
+# 3 仕事の語の支配箱を計算（正準化して出力。3 文字すべて使う語では元論文の packing_schedule_quality と一致）
 cargo run --release -- box AABACB
 # -> AABACB,<1/2,<=1/3,<=1/6
 
@@ -123,11 +123,11 @@ cargo run --release -- upper solve --max-len 24   # 10 コアで約 15 分 → 1
 
 ---
 
-## 上流コードとの対応
+## 元論文のコードとの対応
 
-ソースコード内の型名・用語・コメントは、上流リポジトリ（英語）と照らし合わせて読めるように揃えています。
+ソースコード内の型名・用語・コメントは、元論文のリポジトリ（英語）と照らし合わせて読めるように揃えています。
 
-| 概念 | 上流リポジトリ | 本リポジトリ（Rust） |
+| 概念 | 元論文のリポジトリ | 本リポジトリ（Rust） |
 | --- | --- | --- |
 | 厳密有理数 | `Fraction`（任意精度） | `model::bound::Fraction`（`Ratio<i128>`） |
 | 密度の上界（`<` / `<=`） | `UpperBound`（`bound.hpp`, `pinwheel_scheduling_packing_prover.py`） | `model::bound::UpperBound` |

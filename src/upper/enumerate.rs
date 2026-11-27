@@ -172,8 +172,8 @@ fn collect_jobs(a: &mut [u8; 65], t: usize, p: usize, n: usize, depth: usize, jo
     }
 }
 
-/// Canonicalizes each representative word (`repair_word`, as upstream `PlanPack::repair`) and
-/// sorts by length, then lexicographically.
+/// Canonicalizes each representative word (`repair_word`, as in the paper's `PlanPack::repair`)
+/// and sorts by length, then lexicographically.
 fn canonical_sorted(map: BoxMap) -> Vec<String> {
     let mut words: Vec<String> = map
         .into_values()
