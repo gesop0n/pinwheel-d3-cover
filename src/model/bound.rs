@@ -120,3 +120,31 @@ pub fn parse_fraction(s: &str) -> Result<Fraction, String> {
         Ok(Fraction::from_integer(n))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ordering_reflects_interval_inclusion() {
+        let third = Fraction::new(1, 3);
+        let half = Fraction::new(1, 2);
+        assert!(UpperBound::inclusive(third) < UpperBound::strict(half));
+        assert!(UpperBound::strict(half) < UpperBound::inclusive(half));
+        assert_eq!(
+            UpperBound::strict(half).min(UpperBound::inclusive(half)),
+            UpperBound::strict(half)
+        );
+        assert!(UpperBound::inclusive(half).satisfies(half));
+        assert!(!UpperBound::strict(half).satisfies(half));
+    }
+
+    #[test]
+    fn parses_and_prints_upstream_format() {
+        for text in ["<1/2", "<=5/12"] {
+            assert_eq!(text.parse::<UpperBound>().unwrap().to_string(), text);
+        }
+        assert!("1/2".parse::<UpperBound>().is_err());
+        assert!(parse_fraction("1/0").is_err());
+    }
+}

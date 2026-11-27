@@ -13,9 +13,31 @@ pub struct MinCoverResult {
     pub chosen: Vec<PeriodicSchedule>,
 }
 
+fn verify_row_cover(chosen: &[usize], rows: &[BitRow], stage: &str) -> Result<(), String> {
+    let mut selected = vec![false; chosen.iter().copied().max().map_or(0, |m| m + 1)];
+    for &idx in chosen {
+        selected[idx] = true;
+    }
+    for (row_idx, row) in rows.iter().enumerate() {
+        let covered = row.iter_ones().any(|i| i < selected.len() && selected[i]);
+        if !covered {
+            return Err(format!(
+                "HiGHS ({stage}) rounded solution does not cover constraint row {row_idx}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Solves the exact set-cover instance with HiGHS in two stages:
 ///   1. Minimize the number of words `k`.
-///   2. Among all `k`-word covers, minimize total word length.
+///   2. Among the `k`-word covers drawn from `pool`, minimize total word length.
+///
+/// `pool` holds only inclusion-maximal boxes, so stage 2 is a tie-break within that pool, not a
+/// global minimum of total length: a shorter word whose box is contained in a longer word's box
+/// (e.g. `ABC` once length-14 words are available) is not a candidate.
+///
+/// Optimality of `k` rests on HiGHS (floating-point MIP); it is not independently certified.
 pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>, String> {
     let m = pool.len();
 
@@ -31,7 +53,9 @@ pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>,
     let sol1 = model1
         .solve()
         .map_err(|e| format!("HiGHS failed (stage 1): {e}"))?;
-    let k: usize = x1.iter().filter(|&&v| sol1.value(v) > 0.5).count();
+    let chosen1: Vec<usize> = (0..m).filter(|&i| sol1.value(x1[i]) > 0.5).collect();
+    verify_row_cover(&chosen1, rows, "stage 1")?;
+    let k = chosen1.len();
 
     // Stage 2: tie-break by shortest total word length at cardinality k.
     let mut vars2 = ProblemVariables::new();
@@ -53,6 +77,13 @@ pub fn solve_min_cover(pool: &[PoolItem], rows: &[BitRow]) -> Result<Vec<usize>,
         .solve()
         .map_err(|e| format!("HiGHS failed (stage 2): {e}"))?;
     let mut chosen: Vec<usize> = (0..m).filter(|&i| sol2.value(x2[i]) > 0.5).collect();
+    if chosen.len() != k {
+        return Err(format!(
+            "HiGHS (stage 2) rounded solution has {} words, expected {k}",
+            chosen.len()
+        ));
+    }
+    verify_row_cover(&chosen, rows, "stage 2")?;
     chosen.sort_by(|&i, &j| {
         pool[j]
             .schedule

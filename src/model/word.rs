@@ -189,28 +189,31 @@ mod tests {
     }
 
     #[test]
-    fn matches_11word_certificate() {
-        let cert = "\
-AABACAABACABAACABAACABAC,<=7/12,<=5/24,<=5/24
-AABCAABCABACABACABACB,<7/15,<2/7,<=5/21
-AABCABCABACBABCABC,<3/8,<1/3,<=5/18
-AABCABABACBABACB,<3/7,<3/8,<=3/16
-AAAAABAAAAAC,<=5/6,<=1/12,<=1/12
-AAAABAAACAAB,<3/4,<1/6,<=1/12
-AABABAABACAB,<=7/12,<1/3,<=1/12
-AABABABACBAB,<1/2,<=5/12,<=1/12
-AAABAACAB,<2/3,<=2/9,<=1/9
-AABAABAC,<=5/8,<1/4,<=1/8
-ABABAC,<=1/2,<1/3,<=1/6
-";
-        for entry in parse_certificate(cert).unwrap() {
-            let actual = dominance_box(&entry.word).unwrap();
-            assert_eq!(actual, entry.density_bounds, "mismatch for {}", entry.word);
-            assert!(
-                is_density_ordered(&actual),
-                "not density-ordered: {}",
-                entry.word
-            );
-        }
+    fn canonicalize_matches_upstream_quality_tool() {
+        // Output of upstream `packing_schedule_quality BCBCBA ABCABC`.
+        let c = |w: &str| {
+            PeriodicSchedule::from_word(w)
+                .unwrap()
+                .canonicalize()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(c("BCBCBA"), "ABABAC,<=1/2,<1/3,<=1/6");
+        assert_eq!(c("ABCABC"), "ABCABC,<=1/3,<=1/3,<=1/3");
+        assert_eq!(c("AABACB"), "AABACB,<1/2,<=1/3,<=1/6");
+    }
+
+    #[test]
+    fn repair_word_tie_breaking_is_deterministic() {
+        // All three tasks have equal upper bound <=1/3: relabeling preserves original letter order
+        // (A->A, B->B, C->C) and rotates to the lexicographically smallest cyclic shift.
+        assert_eq!(repair_word("CBA").unwrap(), "ACB");
+        assert_eq!(repair_word("BCA").unwrap(), "ABC");
+
+        // Tasks A and C tie at <=1/4 while B has <=1/2: B maps to A, and the tie between A and C
+        // keeps original letter order (A->B, C->C), followed by smallest cyclic rotation.
+        assert_eq!(repair_word("CBAB").unwrap(), "ABAC");
+        assert_eq!(repair_word("BACB").unwrap(), "AABC");
+        assert_eq!(repair_word("BCAB").unwrap(), "AACB");
     }
 }

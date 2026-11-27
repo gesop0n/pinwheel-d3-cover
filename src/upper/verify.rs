@@ -140,6 +140,7 @@ pub struct LeaveOneOutEntry {
 #[derive(Debug, Clone)]
 pub struct VerificationReport {
     pub word_count: usize,
+    /// Number of threshold cells enumerated (cells inside some box are skipped without an FM call).
     pub total_cells_checked: usize,
     pub leave_one_out: Vec<LeaveOneOutEntry>,
 }

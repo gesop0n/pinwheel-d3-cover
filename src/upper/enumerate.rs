@@ -2,6 +2,8 @@ use std::collections::HashMap;
 
 use rayon::prelude::*;
 
+use crate::model::word::repair_word;
+
 /// Compact representation of an `UpperBound` (reduced `num/den` and `strict` flag)
 /// used inside the enumeration hot loop to avoid heap allocations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -170,6 +172,17 @@ fn collect_jobs(a: &mut [u8; 65], t: usize, p: usize, n: usize, depth: usize, jo
     }
 }
 
+/// Canonicalizes each representative word (`repair_word`, as upstream `PlanPack::repair`) and
+/// sorts by length, then lexicographically.
+fn canonical_sorted(map: BoxMap) -> Vec<String> {
+    let mut words: Vec<String> = map
+        .into_values()
+        .map(|w| repair_word(&w).expect("enumerated words use all of A, B, C"))
+        .collect();
+    words.sort_by(|x, y| x.len().cmp(&y.len()).then_with(|| x.cmp(y)));
+    words
+}
+
 /// Exhaustively enumerates all primitive necklaces (Lyndon words) over `{A, B, C}` of lengths
 /// `3..=max_len` in parallel and returns one shortest representative word per distinct
 /// density-ordered dominance box.
@@ -198,9 +211,7 @@ pub fn enumerate_boxes(max_len: usize) -> Vec<String> {
             acc
         });
 
-    let mut words: Vec<String> = merged.into_values().collect();
-    words.sort_by(|x, y| x.len().cmp(&y.len()).then_with(|| x.cmp(y)));
-    words
+    canonical_sorted(merged)
 }
 
 /// Prefix state for sum-pruned DFS enumeration.
@@ -335,7 +346,7 @@ struct PrunedJob {
 }
 
 fn collect_pruned_jobs(
-    s: &PrunedState,
+    s: &mut PrunedState,
     t: usize,
     max_letter: i32,
     n: usize,
@@ -354,47 +365,46 @@ fn collect_pruned_jobs(
     }
     let limit = (max_letter + 1).min(2) as usize;
     for c in 0..=limit {
-        let mut next = s.clone();
-        let k = next.cnt[c];
+        let k = s.cnt[c];
+        let saved_ub = s.ub[c];
+        let mut saved_g = [0usize; 65];
+        saved_g[1..=k].copy_from_slice(&s.gmax[c][1..=k]);
         for l in 1..=k {
-            let g = t - next.pos[c][k - l];
-            if g > next.gmax[c][l] {
-                next.gmax[c][l] = g;
+            let g = t - s.pos[c][k - l];
+            if g > s.gmax[c][l] {
+                s.gmax[c][l] = g;
             }
-            if next.gmax[c][l] > 1 {
-                let b = (l as f64) / ((next.gmax[c][l] - 1) as f64);
-                if b < next.ub[c] {
-                    next.ub[c] = b;
+            if s.gmax[c][l] > 1 {
+                let b = (l as f64) / ((s.gmax[c][l] - 1) as f64);
+                if b < s.ub[c] {
+                    s.ub[c] = b;
                 }
             }
         }
-        next.w[t] = c as u8;
-        next.pos[c][k] = t;
-        next.cnt[c] = k + 1;
-        next.gmax[c][k + 1] = 0;
+        s.w[t] = c as u8;
+        s.pos[c][k] = t;
+        s.cnt[c] = k + 1;
+        s.gmax[c][k + 1] = 0;
 
-        let total =
-            next.letter_ub(0, t + 1, n) + next.letter_ub(1, t + 1, n) + next.letter_ub(2, t + 1, n);
+        let total = s.letter_ub(0, t + 1, n) + s.letter_ub(1, t + 1, n) + s.letter_ub(2, t + 1, n);
         if total >= sigma_f {
-            collect_pruned_jobs(
-                &next,
-                t + 1,
-                max_letter.max(c as i32),
-                n,
-                depth,
-                sigma_f,
-                jobs,
-            );
+            collect_pruned_jobs(s, t + 1, max_letter.max(c as i32), n, depth, sigma_f, jobs);
         }
+
+        s.cnt[c] = k;
+        s.ub[c] = saved_ub;
+        s.gmax[c][1..=k].copy_from_slice(&saved_g[1..=k]);
     }
 }
 
 /// Pruned enumeration of words of lengths `3..=max_len` whose dominance box satisfies
 /// `u_1 + u_2 + u_3 >= sigma_num / sigma_den`.
 ///
-/// With `sigma = 19/20`, this reproduces all 238 inclusion-maximal boxes up to length 24
-/// in about a second (versus several minutes for exhaustive enumeration), allowing rapid
-/// rediscovery of an 11-word certificate.
+/// The pruning is a heuristic for the cover search: nothing proves that every inclusion-maximal
+/// box has a large bound sum. Empirically, with `sigma = 19/20` the maximal boxes coincide with
+/// exhaustive enumeration for every tested length up to 24 (233 maximal boxes in `D_3` at length
+/// 24), while enumeration takes ~4 s (and full `upper solve` ~10-20 s) instead of ~15 min on a
+/// 10-core machine.
 pub fn enumerate_boxes_pruned(max_len: usize, sigma_num: i128, sigma_den: i128) -> Vec<String> {
     assert!(
         (3..=64).contains(&max_len),
@@ -404,9 +414,10 @@ pub fn enumerate_boxes_pruned(max_len: usize, sigma_num: i128, sigma_den: i128) 
     let sigma_f = (sigma_num as f64) / (sigma_den as f64) - 1e-9;
 
     let mut jobs = Vec::new();
-    for n in 3..=max_len {
-        let s0 = PrunedState::new();
-        collect_pruned_jobs(&s0, 0, -1, n, n.min(10), sigma_f, &mut jobs);
+    // Schedule longer lengths first and split deeper so heavy subtrees distribute evenly across cores.
+    for n in (3..=max_len).rev() {
+        let mut s0 = PrunedState::new();
+        collect_pruned_jobs(&mut s0, 0, -1, n, n.min(13), sigma_f, &mut jobs);
     }
 
     let merged: BoxMap = jobs
@@ -428,9 +439,7 @@ pub fn enumerate_boxes_pruned(max_len: usize, sigma_num: i128, sigma_den: i128) 
             acc
         });
 
-    let mut words: Vec<String> = merged.into_values().collect();
-    words.sort_by(|x, y| x.len().cmp(&y.len()).then_with(|| x.cmp(y)));
-    words
+    canonical_sorted(merged)
 }
 
 #[cfg(test)]
@@ -447,12 +456,27 @@ mod tests {
     }
 
     #[test]
-    fn pruned_len_12_matches_all_maximal_boxes() {
-        let full = build_pool(&enumerate_boxes(12)).unwrap();
-        let pruned = build_pool(&enumerate_boxes_pruned(12, 19, 20)).unwrap();
-        let full_keys: Vec<_> = full.items.iter().map(|i| i.capped).collect();
-        let pruned_keys: Vec<_> = pruned.items.iter().map(|i| i.capped).collect();
-        assert_eq!(pruned_keys, full_keys);
+    fn pruned_matches_all_maximal_boxes_up_to_len_14() {
+        for max_len in [12, 14] {
+            let full = build_pool(&enumerate_boxes(max_len)).unwrap();
+            let pruned = build_pool(&enumerate_boxes_pruned(max_len, 19, 20)).unwrap();
+            let full_keys: Vec<_> = full.items.iter().map(|i| i.capped).collect();
+            let pruned_keys: Vec<_> = pruned.items.iter().map(|i| i.capped).collect();
+            assert_eq!(pruned_keys, full_keys, "max_len = {max_len}");
+        }
+    }
+
+    #[test]
+    fn enumerated_words_are_canonical() {
+        for w in enumerate_boxes(10)
+            .into_iter()
+            .chain(enumerate_boxes_pruned(10, 19, 20))
+        {
+            assert_eq!(repair_word(&w).unwrap(), w);
+            assert!(crate::model::word::is_density_ordered(
+                &dominance_box(&w).unwrap()
+            ));
+        }
     }
 
     #[test]

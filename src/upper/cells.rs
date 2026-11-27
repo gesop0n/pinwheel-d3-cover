@@ -22,10 +22,20 @@ pub fn domain_caps() -> [Fraction; 3] {
 
 /// Caps each coordinate bound at the supremum of `d_c` over `D_3` so that two boxes covering the
 /// exact same subset of `D_3` share the same key.
+///
+/// Over `D_3`, `d_3 > 0` implies `d_1 < 5/6` and `d_2 < 5/12` strictly, so both `< 5/6` and
+/// `<= 5/6` (resp. `< 5/12` and `<= 5/12`) are identically true on `D_3` and collapse to the same
+/// cap. In contrast, `d_3 = 5/18` is attained at `(5/18, 5/18, 5/18)`, so `< 5/18` and `<= 5/18`
+/// remain distinct.
 pub fn cap_box_for_domain(bounds: DominanceBox) -> DominanceBox {
     let caps = domain_caps();
     [0, 1, 2].map(|c| {
-        if bounds[c].value > caps[c] {
+        let cap_hit = if c < 2 {
+            bounds[c].value >= caps[c]
+        } else {
+            bounds[c].value > caps[c]
+        };
+        if cap_hit {
             UpperBound::inclusive(caps[c])
         } else {
             bounds[c]
@@ -362,5 +372,26 @@ mod tests {
         assert_eq!(pool.items.len(), 55);
         let cells = cells_on_slice(&pool.items).unwrap();
         assert!(!cells.minimal_rows.is_empty());
+    }
+
+    #[test]
+    fn cap_box_collapses_unattained_d1_d2_suprema_only() {
+        let b_strict = [
+            UpperBound::strict(Fraction::new(5, 6)),
+            UpperBound::strict(Fraction::new(5, 12)),
+            UpperBound::strict(Fraction::new(5, 18)),
+        ];
+        let b_incl = [
+            UpperBound::inclusive(Fraction::new(5, 6)),
+            UpperBound::inclusive(Fraction::new(5, 12)),
+            UpperBound::inclusive(Fraction::new(5, 18)),
+        ];
+        let c_strict = cap_box_for_domain(b_strict);
+        let c_incl = cap_box_for_domain(b_incl);
+        // d_1 = 5/6 and d_2 = 5/12 are never attained in D_3, so < and <= share a key.
+        assert_eq!(c_strict[0], c_incl[0]);
+        assert_eq!(c_strict[1], c_incl[1]);
+        // d_3 = 5/18 is attained at (5/18, 5/18, 5/18), so < and <= stay distinct.
+        assert_ne!(c_strict[2], c_incl[2]);
     }
 }

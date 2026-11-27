@@ -211,4 +211,37 @@ mod tests {
         assert!(!fm_feasible(&cons));
         assert!(fm_witness(&cons).is_none());
     }
+
+    #[test]
+    fn unbounded_system_yields_valid_witness() {
+        let z = Fraction::zero();
+        let o = Fraction::from_integer(1);
+        // d_1 > d_2, d_2 > 1, d_3 unconstrained.
+        let cons = vec![
+            LinearConstraint::lt([-o, o, z], z),
+            LinearConstraint::lt([z, -o, z], -o),
+        ];
+        assert!(fm_feasible(&cons));
+        let p = fm_witness(&cons).expect("witness should exist");
+        assert!(cons.iter().all(|c| c.satisfied_by(&p)));
+    }
+
+    #[test]
+    fn equality_pinned_point_yields_exact_witness() {
+        let z = Fraction::zero();
+        let o = Fraction::from_integer(1);
+        let p1 = Fraction::new(1, 2);
+        let p2 = Fraction::new(1, 4);
+        let p3 = Fraction::new(1, 12);
+        let cons = vec![
+            LinearConstraint::le([o, z, z], p1),
+            LinearConstraint::le([-o, z, z], -p1),
+            LinearConstraint::le([z, o, z], p2),
+            LinearConstraint::le([z, -o, z], -p2),
+            LinearConstraint::le([z, z, o], p3),
+            LinearConstraint::le([z, z, -o], -p3),
+        ];
+        assert!(fm_feasible(&cons));
+        assert_eq!(fm_witness(&cons), Some([p1, p2, p3]));
+    }
 }

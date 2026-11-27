@@ -27,16 +27,13 @@
               #    混ざり stdenv のラッパを覆い隠すため、下の LIBCLANG_PATH のみで参照する
               pkgs.cmake
               pkgs.pkg-config
-
-              # Lean 4 のツールチェイン管理（`lean/` 用）
-              pkgs.elan
             ];
 
             # bindgen が libclang を見つけられるようにパスを指定
             LIBCLANG_PATH = "${pkgs.llvmPackages.libclang.lib}/lib";
 
             shellHook = ''
-              echo "pinwheel-d3-cover dev shell: $(rustc --version), $(cargo --version), cmake $(cmake --version | head -1 | awk '{print $3}'), elan $(elan --version | awk '{print $2}')"
+              echo "pinwheel-d3-cover dev shell: $(rustc --version), $(cargo --version), cmake $(cmake --version | head -1 | awk '{print $3}')"
             '';
           };
 

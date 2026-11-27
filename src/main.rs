@@ -20,9 +20,10 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Compute the dominance box B(w) of a word in upstream certificate format
+    /// Compute the dominance box B(w) of a 3-task word, canonicalized like upstream
+    /// `packing_schedule_quality` (tasks relabeled by descending bound, smallest rotation)
     Box {
-        /// Periodic word over {A, B, C} (e.g. AABACB)
+        /// Periodic word using all of {A, B, C} (e.g. AABACB)
         word: String,
     },
     /// Upper-bound search and independent domination verification over D_3
@@ -78,6 +79,9 @@ fn read_word_pool(path: &PathBuf) -> Result<Vec<String>, String> {
 }
 
 fn run_enum(max_len: usize, min_sum: Option<&str>) -> Result<(Vec<String>, String), String> {
+    if !(3..=64).contains(&max_len) {
+        return Err(format!("--max-len must be between 3 and 64, got {max_len}"));
+    }
     match min_sum {
         None => Ok((
             enumerate_boxes(max_len),
@@ -98,7 +102,7 @@ fn main() -> Result<(), String> {
     let cli = Cli::parse();
     match cli.command {
         Command::Box { word } => {
-            let sched = PeriodicSchedule::from_word(&word)?;
+            let sched = PeriodicSchedule::from_word(&word)?.canonicalize()?;
             println!("{sched}");
         }
         Command::Upper { command } => match command {
@@ -145,6 +149,17 @@ fn main() -> Result<(), String> {
                 );
                 eprintln!("MINIMUM: {} words", res.chosen.len());
 
+                // HiGHS works in floating point: never emit a certificate that has not passed
+                // the exact, solver-free domination and leave-one-out check.
+                let report = verify_certificate(&res.chosen)?;
+                let redundant = report.redundant_words();
+                if !redundant.is_empty() {
+                    return Err(format!(
+                        "solver returned a cover with redundant words: {redundant:?}"
+                    ));
+                }
+                eprintln!("exact FM verification of the chosen words: passed");
+
                 let header = format!(
                     "{} words dominating D_3 (dimension 3; density at most 5/6); minimum over {}",
                     res.chosen.len(),
@@ -165,7 +180,7 @@ fn main() -> Result<(), String> {
                 let schedules = parse_certificate(&content)?;
                 let report = verify_certificate(&schedules)?;
                 println!(
-                    "The supplied {} words dominate D_3 ({} FM cells checked, 0 undominated): {}",
+                    "The supplied {} words dominate D_3 ({} threshold cells enumerated, 0 undominated): {}",
                     report.word_count,
                     report.total_cells_checked,
                     cert.display()
